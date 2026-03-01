@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      4.2
+// @version      4.3
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -140,146 +140,123 @@
     // Custom JS code editor tab built from scratch
     function addCodeTab() {
         try {
+            var _codeContainer = null;
+
+            function renderCode() {
+                var c = _codeContainer;
+                if (!c) return;
+                c.innerHTML = [
+                    '<div style="padding:10px;box-sizing:border-box;">',
+                    '<textarea id="eruda-code-input" style="',
+                        'display:block;',
+                        'width:100%;',
+                        'height:200px;',
+                        'background:#1e1e1e;',
+                        'color:#d4d4d4;',
+                        'border:1px solid #444;',
+                        'border-radius:6px;',
+                        'padding:10px;',
+                        'font-family:monospace;',
+                        'font-size:13px;',
+                        'resize:none;',
+                        'outline:none;',
+                        'box-sizing:border-box;',
+                        'margin-bottom:8px;',
+                    '" placeholder="// Type your JavaScript here and press Run"></textarea>',
+                    '<div style="display:flex;gap:8px;margin-bottom:8px;">',
+                        '<button id="eruda-code-run" style="',
+                            'flex:1;padding:8px;background:#0e7a0d;color:white;',
+                            'border:none;border-radius:6px;font-size:14px;cursor:pointer;',
+                        '">&#9654; Run</button>',
+                        '<button id="eruda-code-clear" style="',
+                            'flex:1;padding:8px;background:#555;color:white;',
+                            'border:none;border-radius:6px;font-size:14px;cursor:pointer;',
+                        '">&#128465; Clear</button>',
+                        '<button id="eruda-code-copy" style="',
+                            'flex:1;padding:8px;background:#1a6fa8;color:white;',
+                            'border:none;border-radius:6px;font-size:14px;cursor:pointer;',
+                        '">&#128203; Copy</button>',
+                    '</div>',
+                    '<div id="eruda-code-output" style="',
+                        'height:150px;background:#111;color:#0f0;border:1px solid #333;',
+                        'border-radius:6px;padding:10px;font-family:monospace;font-size:12px;',
+                        'overflow-y:auto;white-space:pre-wrap;word-break:break-all;',
+                    '">Output will appear here...</div>',
+                    '</div>'
+                ].join('');
+
+                var input   = c.querySelector('#eruda-code-input');
+                var output  = c.querySelector('#eruda-code-output');
+                var runBtn  = c.querySelector('#eruda-code-run');
+                var clearBtn = c.querySelector('#eruda-code-clear');
+                var copyBtn  = c.querySelector('#eruda-code-copy');
+
+                input.value = GM_getValue('erudaCode', '');
+
+                input.addEventListener('input', function() {
+                    GM_setValue('erudaCode', input.value);
+                });
+
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        var start = input.selectionStart, end = input.selectionEnd;
+                        input.value = input.value.substring(0, start) + '    ' + input.value.substring(end);
+                        input.selectionStart = input.selectionEnd = start + 4;
+                    }
+                    if (e.ctrlKey && e.key === 'Enter') runBtn.click();
+                });
+
+                runBtn.addEventListener('click', function() {
+                    var code = input.value;
+                    if (!code.trim()) return;
+                    output.style.color = '#0f0';
+                    try {
+                        var result = eval.call(unsafeWindow, code);
+                        if (result !== undefined) {
+                            try { output.textContent = JSON.stringify(result, null, 2); }
+                            catch(e) { output.textContent = String(result); }
+                        } else {
+                            output.textContent = 'Executed (no return value)';
+                        }
+                    } catch(err) {
+                        output.style.color = '#ff4444';
+                        output.textContent = 'Error: ' + err.message;
+                    }
+                });
+
+                clearBtn.addEventListener('click', function() {
+                    input.value = '';
+                    output.style.color = '#0f0';
+                    output.textContent = 'Output will appear here...';
+                    GM_setValue('erudaCode', '');
+                });
+
+                copyBtn.addEventListener('click', function() {
+                    navigator.clipboard.writeText(input.value).then(function() {
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(function() { copyBtn.textContent = '&#128203; Copy'; }, 1500);
+                    }).catch(function() {
+                        copyBtn.textContent = 'Failed';
+                        setTimeout(function() { copyBtn.textContent = '&#128203; Copy'; }, 1500);
+                    });
+                });
+            }
+
             const CodeTool = {
                 name: 'Code',
                 init: function($el) {
                     var host = ($el && $el[0] != null) ? $el[0] : $el;
-                    var container = (host && host.shadowRoot) ? host.shadowRoot : host;
-                    container.innerHTML = [
-                        '<div style="padding:10px;box-sizing:border-box;">',
-                        '<textarea id="eruda-code-input" style="',
-                            'display:block;',
-                            'width:100%;',
-                            'height:200px;',
-                            'background:#1e1e1e;',
-                            'color:#d4d4d4;',
-                            'border:1px solid #444;',
-                            'border-radius:6px;',
-                            'padding:10px;',
-                            'font-family:monospace;',
-                            'font-size:13px;',
-                            'resize:none;',
-                            'outline:none;',
-                            'box-sizing:border-box;',
-                            'margin-bottom:8px;',
-                        '" placeholder="// Type your JavaScript here and press Run"></textarea>',
-                        '<div style="display:flex;gap:8px;margin-bottom:8px;">',
-                            '<button id="eruda-code-run" style="',
-                                'flex:1;',
-                                'padding:8px;',
-                                'background:#0e7a0d;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#9654; Run</button>',
-                            '<button id="eruda-code-clear" style="',
-                                'flex:1;',
-                                'padding:8px;',
-                                'background:#555;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#128465; Clear</button>',
-                            '<button id="eruda-code-copy" style="',
-                                'flex:1;',
-                                'padding:8px;',
-                                'background:#1a6fa8;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#128203; Copy</button>',
-                        '</div>',
-                        '<div id="eruda-code-output" style="',
-                            'height:150px;',
-                            'background:#111;',
-                            'color:#0f0;',
-                            'border:1px solid #333;',
-                            'border-radius:6px;',
-                            'padding:10px;',
-                            'font-family:monospace;',
-                            'font-size:12px;',
-                            'overflow-y:auto;',
-                            'white-space:pre-wrap;',
-                            'word-break:break-all;',
-                        '">Output will appear here...</div>',
-                        '</div>'
-                    ].join('');
-
-                    const input = container.querySelector('#eruda-code-input');
-                    const output = container.querySelector('#eruda-code-output');
-                    const runBtn = container.querySelector('#eruda-code-run');
-                    const clearBtn = container.querySelector('#eruda-code-clear');
-                    const copyBtn = container.querySelector('#eruda-code-copy');
-
-                    // Restore saved code
-                    input.value = GM_getValue('erudaCode', '');
-
-                    // Save code as you type
-                    input.addEventListener('input', function() {
-                        GM_setValue('erudaCode', input.value);
-                    });
-
-                    // Tab key inserts spaces instead of leaving the field
-                    input.addEventListener('keydown', function(e) {
-                        if (e.key === 'Tab') {
-                            e.preventDefault();
-                            const start = input.selectionStart;
-                            const end = input.selectionEnd;
-                            input.value = input.value.substring(0, start) + '    ' + input.value.substring(end);
-                            input.selectionStart = input.selectionEnd = start + 4;
-                        }
-                        // Ctrl+Enter to run
-                        if (e.ctrlKey && e.key === 'Enter') {
-                            runBtn.click();
-                        }
-                    });
-
-                    runBtn.addEventListener('click', function() {
-                        const code = input.value;
-                        if (!code.trim()) return;
-                        output.style.color = '#0f0';
-                        try {
-                            // Use unsafeWindow so eval runs in the page's context, not the sandbox
-                            const result = eval.call(unsafeWindow, code);
-                            if (result !== undefined) {
-                                try {
-                                    output.textContent = JSON.stringify(result, null, 2);
-                                } catch(e) {
-                                    output.textContent = String(result);
-                                }
-                            } else {
-                                output.textContent = 'Executed (no return value)';
-                            }
-                        } catch(err) {
-                            output.style.color = '#ff4444';
-                            output.textContent = 'Error: ' + err.message;
-                        }
-                    });
-
-                    clearBtn.addEventListener('click', function() {
-                        input.value = '';
-                        output.style.color = '#0f0';
-                        output.textContent = 'Output will appear here...';
-                        GM_setValue('erudaCode', '');
-                    });
-
-                    copyBtn.addEventListener('click', function() {
-                        navigator.clipboard.writeText(input.value).then(function() {
-                            copyBtn.textContent = 'Copied!';
-                            setTimeout(function() { copyBtn.textContent = '&#128203; Copy'; }, 1500);
-                        }).catch(function() {
-                            copyBtn.textContent = 'Failed';
-                            setTimeout(function() { copyBtn.textContent = '&#128203; Copy'; }, 1500);
-                        });
-                    });
+                    _codeContainer = (host && host.shadowRoot) ? host.shadowRoot : host;
+                    renderCode();
                 },
-                show: function() {},
+                // Eruda 3.x clears the panel content between tab switches and calls
+                // show() when the tab is activated — re-render if our content is gone.
+                show: function() {
+                    if (_codeContainer && !_codeContainer.querySelector('#eruda-code-input')) {
+                        renderCode();
+                    }
+                },
                 hide: function() {},
                 destroy: function() {}
             };
@@ -294,44 +271,31 @@
     // Vue component inspector tab — supports Vue 2 and Vue 3
     function addVueTab() {
         try {
-            const VueTool = {
-                name: 'Vue',
-                init: function($el) {
-                    var host = ($el && $el[0] != null) ? $el[0] : $el;
-                    var container = (host && host.shadowRoot) ? host.shadowRoot : host;
-                    container.innerHTML = [
-                        '<div style="padding:10px;box-sizing:border-box;">',
-                        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">',
-                            '<span id="eruda-vue-status" style="flex:1;font-family:monospace;font-size:12px;color:#42b883;font-weight:bold;"></span>',
-                            '<button id="eruda-vue-scan" style="',
-                                'padding:8px 16px;',
-                                'background:#42b883;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#8635; Scan</button>',
-                        '</div>',
-                        '<div id="eruda-vue-tree" style="',
-                            'height:300px;',
-                            'overflow-y:auto;',
-                            'font-family:monospace;',
-                            'font-size:12px;',
-                            'background:#1a1a1a;',
-                            'border:1px solid #333;',
-                            'border-radius:6px;',
-                            'padding:10px;',
-                            'color:#ccc;',
-                            'white-space:pre-wrap;',
-                            'word-break:break-all;',
-                        '">Press Scan to inspect Vue components.</div>',
-                        '</div>'
-                    ].join('');
+            var _vueContainer = null;
 
-                    const status = container.querySelector('#eruda-vue-status');
-                    const tree   = container.querySelector('#eruda-vue-tree');
-                    const scanBtn = container.querySelector('#eruda-vue-scan');
+            function renderVue() {
+                var c = _vueContainer;
+                if (!c) return;
+                c.innerHTML = [
+                    '<div style="padding:10px;box-sizing:border-box;">',
+                    '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">',
+                        '<span id="eruda-vue-status" style="flex:1;font-family:monospace;font-size:12px;color:#42b883;font-weight:bold;"></span>',
+                        '<button id="eruda-vue-scan" style="',
+                            'padding:8px 16px;background:#42b883;color:white;',
+                            'border:none;border-radius:6px;font-size:14px;cursor:pointer;',
+                        '">&#8635; Scan</button>',
+                    '</div>',
+                    '<div id="eruda-vue-tree" style="',
+                        'height:300px;overflow-y:auto;font-family:monospace;font-size:12px;',
+                        'background:#1a1a1a;border:1px solid #333;border-radius:6px;',
+                        'padding:10px;color:#ccc;white-space:pre-wrap;word-break:break-all;',
+                    '">Press Scan to inspect Vue components.</div>',
+                    '</div>'
+                ].join('');
+
+                var status  = c.querySelector('#eruda-vue-status');
+                var tree    = c.querySelector('#eruda-vue-tree');
+                var scanBtn = c.querySelector('#eruda-vue-scan');
 
                     // Detect which version of Vue is on the page
                     function detectVue() {
@@ -457,10 +421,24 @@
                         }
                     }
 
-                    scanBtn.addEventListener('click', scan);
-                    scan(); // auto-scan when tab opens
+                scanBtn.addEventListener('click', scan);
+                scan(); // auto-scan when tab opens
+            } // end renderVue
+
+            const VueTool = {
+                name: 'Vue',
+                init: function($el) {
+                    var host = ($el && $el[0] != null) ? $el[0] : $el;
+                    _vueContainer = (host && host.shadowRoot) ? host.shadowRoot : host;
+                    renderVue();
                 },
-                show: function() {},
+                // Eruda 3.x clears the panel content between tab switches and calls
+                // show() when the tab is activated — re-render if our content is gone.
+                show: function() {
+                    if (_vueContainer && !_vueContainer.querySelector('#eruda-vue-scan')) {
+                        renderVue();
+                    }
+                },
                 hide: function() {},
                 destroy: function() {}
             };
