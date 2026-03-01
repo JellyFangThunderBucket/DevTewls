@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      3.7
+// @version      3.8
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -13,7 +13,6 @@
 // @require      https://cdn.jsdelivr.net/npm/eruda-dom
 // @require      https://cdn.jsdelivr.net/npm/eruda-timing
 // @require      https://cdn.jsdelivr.net/npm/eruda-benchmark
-// @require      https://cdn.jsdelivr.net/npm/eruda-geolocation
 // @require      https://cdn.jsdelivr.net/npm/eruda-features
 // @require      https://cdn.jsdelivr.net/npm/eruda-orientation
 // ==/UserScript==
@@ -144,7 +143,6 @@
             { global: 'erudaDom',         name: 'erudaDom' },
             { global: 'erudaTiming',      name: 'erudaTiming' },
             { global: 'erudaBenchmark',   name: 'erudaBenchmark' },
-            { global: 'erudaGeolocation', name: 'erudaGeolocation' },
             { global: 'erudaFeatures',    name: 'erudaFeatures' },
             { global: 'erudaOrientation', name: 'erudaOrientation' }
         ];
@@ -163,338 +161,535 @@
         console.log('%c✅ Eruda ready with all plugins', 'color:lime; font-weight:bold;');
         addCodeTab();
         addVueTab();
+        addRevealTab();
 
     }, 500);
 
-    // Custom JS code editor tab built from scratch
+    // Helper: resolve the raw DOM node from an Eruda jQuery-like wrapper.
+    // Eruda calls init($el) sometimes before the element is in a rendered state,
+    // so we also retry from show() using the saved reference.
+    function getRawEl($el) {
+        if (!$el) return null;
+        var el = ($el[0] !== undefined) ? $el[0] : $el;
+        return (el && typeof el.innerHTML !== 'undefined') ? el : null;
+    }
+
+    // Shared button style for custom tabs
+    var BTN = 'padding:7px 12px;border:none;border-radius:6px;font-size:13px;cursor:pointer;color:#fff;';
+
+    // ─── Custom JS code editor tab ────────────────────────────────────────────
     function addCodeTab() {
         try {
-            const CodeTool = {
+            var _el = null;
+            var _rendered = false;
+
+            function render(container) {
+                if (_rendered) return;
+                _rendered = true;
+                container.innerHTML = [
+                    '<div style="padding:10px;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;min-height:100%;">',
+                    '<textarea id="eruda-code-input" style="',
+                        'min-height:260px;',
+                        'width:100%;',
+                        'background:#1e1e1e;',
+                        'color:#d4d4d4;',
+                        'border:1px solid #444;',
+                        'border-radius:6px;',
+                        'padding:10px;',
+                        'font-family:monospace;',
+                        'font-size:13px;',
+                        'resize:vertical;',
+                        'outline:none;',
+                        'box-sizing:border-box;',
+                    '" placeholder="// Type your JavaScript here and press Run"></textarea>',
+                    '<div style="display:flex;gap:8px;">',
+                        '<button id="eruda-code-run"   style="' + BTN + 'flex:1;background:#0e7a0d;">&#9654; Run</button>',
+                        '<button id="eruda-code-clear" style="' + BTN + 'flex:1;background:#555;">&#128465; Clear</button>',
+                        '<button id="eruda-code-copy"  style="' + BTN + 'flex:1;background:#1a6fa8;">&#128203; Copy</button>',
+                    '</div>',
+                    '<div id="eruda-code-output" style="',
+                        'min-height:130px;',
+                        'background:#111;',
+                        'color:#0f0;',
+                        'border:1px solid #333;',
+                        'border-radius:6px;',
+                        'padding:10px;',
+                        'font-family:monospace;',
+                        'font-size:12px;',
+                        'overflow-y:auto;',
+                        'white-space:pre-wrap;',
+                        'word-break:break-all;',
+                    '">Output will appear here...</div>',
+                    '</div>'
+                ].join('');
+
+                var input   = container.querySelector('#eruda-code-input');
+                var output  = container.querySelector('#eruda-code-output');
+                var runBtn  = container.querySelector('#eruda-code-run');
+                var clearBtn = container.querySelector('#eruda-code-clear');
+                var copyBtn = container.querySelector('#eruda-code-copy');
+
+                // Restore saved code
+                input.value = GM_getValue('erudaCode', '');
+
+                input.addEventListener('input', function() {
+                    GM_setValue('erudaCode', input.value);
+                });
+
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Tab') {
+                        e.preventDefault();
+                        var s = input.selectionStart, end = input.selectionEnd;
+                        input.value = input.value.substring(0, s) + '    ' + input.value.substring(end);
+                        input.selectionStart = input.selectionEnd = s + 4;
+                    }
+                    if (e.ctrlKey && e.key === 'Enter') runBtn.click();
+                });
+
+                runBtn.addEventListener('click', function() {
+                    var code = input.value;
+                    if (!code.trim()) return;
+                    output.style.color = '#0f0';
+                    try {
+                        var result = eval.call(unsafeWindow, code);
+                        if (result !== undefined) {
+                            try { output.textContent = JSON.stringify(result, null, 2); }
+                            catch(e) { output.textContent = String(result); }
+                        } else {
+                            output.textContent = 'Executed (no return value)';
+                        }
+                    } catch(err) {
+                        output.style.color = '#ff4444';
+                        output.textContent = 'Error: ' + err.message;
+                    }
+                });
+
+                clearBtn.addEventListener('click', function() {
+                    input.value = '';
+                    output.style.color = '#0f0';
+                    output.textContent = 'Output will appear here...';
+                    GM_setValue('erudaCode', '');
+                });
+
+                copyBtn.addEventListener('click', function() {
+                    navigator.clipboard.writeText(input.value).then(function() {
+                        copyBtn.textContent = 'Copied!';
+                        setTimeout(function() { copyBtn.innerHTML = '&#128203; Copy'; }, 1500);
+                    }).catch(function() {
+                        copyBtn.textContent = 'Failed';
+                        setTimeout(function() { copyBtn.innerHTML = '&#128203; Copy'; }, 1500);
+                    });
+                });
+            }
+
+            eruda.add({
                 name: 'Code',
                 init: function($el) {
-                    var container = $el[0] || $el;
-                    container.innerHTML = [
-                        '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
-                        '<textarea id="eruda-code-input" style="',
-                            'flex:1;',
-                            'width:100%;',
-                            'background:#1e1e1e;',
-                            'color:#d4d4d4;',
-                            'border:1px solid #444;',
-                            'border-radius:6px;',
-                            'padding:10px;',
-                            'font-family:monospace;',
-                            'font-size:13px;',
-                            'resize:none;',
-                            'outline:none;',
-                            'box-sizing:border-box;',
-                            'margin-bottom:8px;',
-                        '" placeholder="// Type your JavaScript here and press Run"></textarea>',
-                        '<div style="display:flex;gap:8px;margin-bottom:8px;">',
-                            '<button id="eruda-code-run" style="',
-                                'flex:1;',
-                                'padding:8px;',
-                                'background:#0e7a0d;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#9654; Run</button>',
-                            '<button id="eruda-code-clear" style="',
-                                'flex:1;',
-                                'padding:8px;',
-                                'background:#555;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#128465; Clear</button>',
-                            '<button id="eruda-code-copy" style="',
-                                'flex:1;',
-                                'padding:8px;',
-                                'background:#1a6fa8;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#128203; Copy</button>',
-                        '</div>',
-                        '<div id="eruda-code-output" style="',
-                            'height:150px;',
-                            'background:#111;',
-                            'color:#0f0;',
-                            'border:1px solid #333;',
-                            'border-radius:6px;',
-                            'padding:10px;',
-                            'font-family:monospace;',
-                            'font-size:12px;',
-                            'overflow-y:auto;',
-                            'white-space:pre-wrap;',
-                            'word-break:break-all;',
-                        '">Output will appear here...</div>',
-                        '</div>'
-                    ].join('');
-
-                    const input = container.querySelector('#eruda-code-input');
-                    const output = container.querySelector('#eruda-code-output');
-                    const runBtn = container.querySelector('#eruda-code-run');
-                    const clearBtn = container.querySelector('#eruda-code-clear');
-                    const copyBtn = container.querySelector('#eruda-code-copy');
-
-                    // Restore saved code
-                    input.value = GM_getValue('erudaCode', '');
-
-                    // Save code as you type
-                    input.addEventListener('input', function() {
-                        GM_setValue('erudaCode', input.value);
-                    });
-
-                    // Tab key inserts spaces instead of leaving the field
-                    input.addEventListener('keydown', function(e) {
-                        if (e.key === 'Tab') {
-                            e.preventDefault();
-                            const start = input.selectionStart;
-                            const end = input.selectionEnd;
-                            input.value = input.value.substring(0, start) + '    ' + input.value.substring(end);
-                            input.selectionStart = input.selectionEnd = start + 4;
-                        }
-                        // Ctrl+Enter to run
-                        if (e.ctrlKey && e.key === 'Enter') {
-                            runBtn.click();
-                        }
-                    });
-
-                    runBtn.addEventListener('click', function() {
-                        const code = input.value;
-                        if (!code.trim()) return;
-                        output.style.color = '#0f0';
-                        try {
-                            // Use unsafeWindow so eval runs in the page's context, not the sandbox
-                            const result = eval.call(unsafeWindow, code);
-                            if (result !== undefined) {
-                                try {
-                                    output.textContent = JSON.stringify(result, null, 2);
-                                } catch(e) {
-                                    output.textContent = String(result);
-                                }
-                            } else {
-                                output.textContent = 'Executed (no return value)';
-                            }
-                        } catch(err) {
-                            output.style.color = '#ff4444';
-                            output.textContent = 'Error: ' + err.message;
-                        }
-                    });
-
-                    clearBtn.addEventListener('click', function() {
-                        input.value = '';
-                        output.style.color = '#0f0';
-                        output.textContent = 'Output will appear here...';
-                        GM_setValue('erudaCode', '');
-                    });
-
-                    copyBtn.addEventListener('click', function() {
-                        navigator.clipboard.writeText(input.value).then(function() {
-                            copyBtn.textContent = 'Copied!';
-                            setTimeout(function() { copyBtn.textContent = '&#128203; Copy'; }, 1500);
-                        }).catch(function() {
-                            copyBtn.textContent = 'Failed';
-                            setTimeout(function() { copyBtn.textContent = '&#128203; Copy'; }, 1500);
-                        });
-                    });
+                    _el = $el;
+                    var c = getRawEl($el);
+                    if (c) render(c);
                 },
-                show: function() {},
+                show: function() {
+                    if (!_rendered && _el) {
+                        var c = getRawEl(_el);
+                        if (c) render(c);
+                    }
+                },
                 hide: function() {},
                 destroy: function() {}
-            };
+            });
 
-            eruda.add(CodeTool);
             console.log('%c✓ Custom Code tab added', 'color:cyan;');
         } catch(e) {
             console.warn('Could not add Code tab:', e);
         }
     }
 
-    // Vue component inspector tab — supports Vue 2 and Vue 3
+    // ─── Vue component inspector tab ──────────────────────────────────────────
     function addVueTab() {
         try {
-            const VueTool = {
+            var _el = null;
+            var _rendered = false;
+
+            function render(container) {
+                if (_rendered) return;
+                _rendered = true;
+                container.innerHTML = [
+                    '<div style="padding:10px;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;min-height:100%;">',
+                    '<div style="display:flex;gap:8px;align-items:center;">',
+                        '<span id="eruda-vue-status" style="flex:1;font-family:monospace;font-size:12px;color:#42b883;font-weight:bold;"></span>',
+                        '<button id="eruda-vue-scan" style="' + BTN + 'background:#42b883;">&#8635; Scan</button>',
+                    '</div>',
+                    '<div id="eruda-vue-tree" style="',
+                        'flex:1;',
+                        'min-height:320px;',
+                        'overflow-y:auto;',
+                        'font-family:monospace;',
+                        'font-size:12px;',
+                        'background:#1a1a1a;',
+                        'border:1px solid #333;',
+                        'border-radius:6px;',
+                        'padding:10px;',
+                        'color:#ccc;',
+                        'white-space:pre-wrap;',
+                        'word-break:break-all;',
+                    '">Press Scan to inspect Vue components.</div>',
+                    '</div>'
+                ].join('');
+
+                var status  = container.querySelector('#eruda-vue-status');
+                var tree    = container.querySelector('#eruda-vue-tree');
+                var scanBtn = container.querySelector('#eruda-vue-scan');
+
+                function detectVue() {
+                    var candidates = [
+                        document.querySelector('[data-v-app]'),
+                        document.querySelector('#app'),
+                        document.body
+                    ];
+                    for (var i = 0; i < candidates.length; i++) {
+                        var el = candidates[i];
+                        if (el && el.__vue_app__) return { version: 3, app: el.__vue_app__ };
+                    }
+                    var el2 = document.querySelector('#app');
+                    if (el2 && el2.__vue__) return { version: 2, root: el2.__vue__ };
+                    if (unsafeWindow.Vue && unsafeWindow.Vue.version && unsafeWindow.Vue.version[0] === '2') {
+                        return { version: 2, root: null };
+                    }
+                    return null;
+                }
+
+                function fmt(val, depth) {
+                    if (depth > 2) return '...';
+                    if (val === null) return 'null';
+                    if (val === undefined) return 'undefined';
+                    if (typeof val !== 'object') return JSON.stringify(val);
+                    if (Array.isArray(val)) {
+                        if (val.length === 0) return '[]';
+                        var items = val.slice(0, 5).map(function(v) { return fmt(v, depth + 1); });
+                        return '[' + items.join(', ') + (val.length > 5 ? ', ...' : '') + ']';
+                    }
+                    var keys = Object.keys(val);
+                    if (keys.length === 0) return '{}';
+                    var shown = keys.slice(0, 8).map(function(k) { return k + ': ' + fmt(val[k], depth + 1); });
+                    return '{ ' + shown.join(', ') + (keys.length > 8 ? ', ...' : '') + ' }';
+                }
+
+                function renderV2(vm, indent) {
+                    var name = (vm.$options && (vm.$options.name || vm.$options._componentTag)) || 'Anonymous';
+                    var out = indent + '<' + name + '>\n';
+                    try { if (vm.$data  && Object.keys(vm.$data).length)  out += indent + '  data:  ' + fmt(vm.$data,  0) + '\n'; } catch(e) {}
+                    try { if (vm.$props && Object.keys(vm.$props).length) out += indent + '  props: ' + fmt(vm.$props, 0) + '\n'; } catch(e) {}
+                    if (vm.$children && vm.$children.length) {
+                        vm.$children.forEach(function(child) { out += renderV2(child, indent + '  '); });
+                    }
+                    return out;
+                }
+
+                function collectV3Children(vnode, result) {
+                    if (!vnode) return result;
+                    if (vnode.component) { result.push(vnode.component); return result; }
+                    if (Array.isArray(vnode.children)) {
+                        vnode.children.forEach(function(c) { collectV3Children(c, result); });
+                    } else if (vnode.children && typeof vnode.children === 'object') {
+                        Object.values(vnode.children).forEach(function(c) {
+                            if (c && typeof c === 'object') collectV3Children(c, result);
+                        });
+                    }
+                    return result;
+                }
+
+                function renderV3(instance, indent, depth) {
+                    if (!instance || depth > 12) return '';
+                    var type = instance.type || {};
+                    var name = type.name || type.__name || type.displayName || 'Anonymous';
+                    var out = indent + '<' + name + '>\n';
+                    try { if (instance.data       && Object.keys(instance.data).length)       out += indent + '  data:  ' + fmt(instance.data,       0) + '\n'; } catch(e) {}
+                    try { if (instance.props      && Object.keys(instance.props).length)      out += indent + '  props: ' + fmt(instance.props,      0) + '\n'; } catch(e) {}
+                    try { if (instance.setupState && Object.keys(instance.setupState).length) out += indent + '  setup: ' + fmt(instance.setupState, 0) + '\n'; } catch(e) {}
+                    if (instance.subTree) {
+                        collectV3Children(instance.subTree, []).forEach(function(child) {
+                            out += renderV3(child, indent + '  ', depth + 1);
+                        });
+                    }
+                    return out;
+                }
+
+                function scan() {
+                    tree.style.color = '#ccc';
+                    tree.textContent = 'Scanning...';
+                    var vue = detectVue();
+
+                    if (!vue) {
+                        status.style.color = '#ff6b6b';
+                        status.textContent = 'Vue not detected';
+                        tree.textContent = 'No Vue instance found on this page.\n\nThis tab works on sites that use Vue.js.';
+                        return;
+                    }
+
+                    if (vue.version === 2) {
+                        var ver = (unsafeWindow.Vue && unsafeWindow.Vue.version) ? unsafeWindow.Vue.version : '2.x';
+                        status.style.color = '#42b883';
+                        status.textContent = 'Vue ' + ver;
+                        try {
+                            var root = vue.root;
+                            if (!root) {
+                                var el = document.querySelector('#app');
+                                root = el && el.__vue__;
+                            }
+                            tree.textContent = root ? renderV2(root, '') : 'Vue 2 detected but root instance not accessible.';
+                        } catch(e) {
+                            tree.style.color = '#ff4444';
+                            tree.textContent = 'Error scanning Vue 2: ' + e.message;
+                        }
+                    } else {
+                        var appVer = vue.app.version || '3.x';
+                        status.style.color = '#42b883';
+                        status.textContent = 'Vue ' + appVer;
+                        try {
+                            var rootInstance = vue.app._instance;
+                            tree.textContent = rootInstance ? renderV3(rootInstance, '', 0) : 'Vue 3 detected but root instance not accessible.';
+                        } catch(e) {
+                            tree.style.color = '#ff4444';
+                            tree.textContent = 'Error scanning Vue 3: ' + e.message;
+                        }
+                    }
+                }
+
+                scanBtn.addEventListener('click', scan);
+                scan();
+            }
+
+            eruda.add({
                 name: 'Vue',
                 init: function($el) {
-                    var container = $el[0] || $el;
-                    container.innerHTML = [
-                        '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
-                        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">',
-                            '<span id="eruda-vue-status" style="flex:1;font-family:monospace;font-size:12px;color:#42b883;font-weight:bold;"></span>',
-                            '<button id="eruda-vue-scan" style="',
-                                'padding:8px 16px;',
-                                'background:#42b883;',
-                                'color:white;',
-                                'border:none;',
-                                'border-radius:6px;',
-                                'font-size:14px;',
-                                'cursor:pointer;',
-                            '">&#8635; Scan</button>',
-                        '</div>',
-                        '<div id="eruda-vue-tree" style="',
-                            'flex:1;',
-                            'overflow-y:auto;',
-                            'font-family:monospace;',
-                            'font-size:12px;',
-                            'background:#1a1a1a;',
-                            'border:1px solid #333;',
-                            'border-radius:6px;',
-                            'padding:10px;',
-                            'color:#ccc;',
-                            'white-space:pre-wrap;',
-                            'word-break:break-all;',
-                        '">Press Scan to inspect Vue components.</div>',
-                        '</div>'
-                    ].join('');
-
-                    const status = container.querySelector('#eruda-vue-status');
-                    const tree   = container.querySelector('#eruda-vue-tree');
-                    const scanBtn = container.querySelector('#eruda-vue-scan');
-
-                    // Detect which version of Vue is on the page
-                    function detectVue() {
-                        // Vue 3: root element carries __vue_app__
-                        const candidates = [
-                            document.querySelector('[data-v-app]'),
-                            document.querySelector('#app'),
-                            document.body
-                        ];
-                        for (var i = 0; i < candidates.length; i++) {
-                            var el = candidates[i];
-                            if (el && el.__vue_app__) return { version: 3, app: el.__vue_app__ };
-                        }
-                        // Vue 2: root element carries __vue__
-                        var el2 = document.querySelector('#app');
-                        if (el2 && el2.__vue__) return { version: 2, root: el2.__vue__ };
-                        // Vue 2 global constructor
-                        if (unsafeWindow.Vue && unsafeWindow.Vue.version && unsafeWindow.Vue.version[0] === '2') {
-                            return { version: 2, root: null };
-                        }
-                        return null;
-                    }
-
-                    // Safely stringify a value with depth limit
-                    function fmt(val, depth) {
-                        if (depth > 2) return '...';
-                        if (val === null) return 'null';
-                        if (val === undefined) return 'undefined';
-                        if (typeof val !== 'object') return JSON.stringify(val);
-                        if (Array.isArray(val)) {
-                            if (val.length === 0) return '[]';
-                            var items = val.slice(0, 5).map(function(v) { return fmt(v, depth + 1); });
-                            return '[' + items.join(', ') + (val.length > 5 ? ', ...' : '') + ']';
-                        }
-                        var keys = Object.keys(val);
-                        if (keys.length === 0) return '{}';
-                        var shown = keys.slice(0, 8).map(function(k) { return k + ': ' + fmt(val[k], depth + 1); });
-                        return '{ ' + shown.join(', ') + (keys.length > 8 ? ', ...' : '') + ' }';
-                    }
-
-                    // Render a Vue 2 component instance recursively
-                    function renderV2(vm, indent) {
-                        var name = (vm.$options && (vm.$options.name || vm.$options._componentTag)) || 'Anonymous';
-                        var out = indent + '<' + name + '>\n';
-                        try { if (vm.$data  && Object.keys(vm.$data).length)  out += indent + '  data:  ' + fmt(vm.$data,  0) + '\n'; } catch(e) {}
-                        try { if (vm.$props && Object.keys(vm.$props).length) out += indent + '  props: ' + fmt(vm.$props, 0) + '\n'; } catch(e) {}
-                        if (vm.$children && vm.$children.length) {
-                            vm.$children.forEach(function(child) { out += renderV2(child, indent + '  '); });
-                        }
-                        return out;
-                    }
-
-                    // Walk a Vue 3 vnode tree and collect component instances
-                    function collectV3Children(vnode, result) {
-                        if (!vnode) return result;
-                        if (vnode.component) { result.push(vnode.component); return result; }
-                        if (Array.isArray(vnode.children)) {
-                            vnode.children.forEach(function(c) { collectV3Children(c, result); });
-                        } else if (vnode.children && typeof vnode.children === 'object') {
-                            Object.values(vnode.children).forEach(function(c) {
-                                if (c && typeof c === 'object') collectV3Children(c, result);
-                            });
-                        }
-                        return result;
-                    }
-
-                    // Render a Vue 3 component instance recursively
-                    function renderV3(instance, indent, depth) {
-                        if (!instance || depth > 12) return '';
-                        var type = instance.type || {};
-                        var name = type.name || type.__name || type.displayName || 'Anonymous';
-                        var out = indent + '<' + name + '>\n';
-                        try { if (instance.data       && Object.keys(instance.data).length)       out += indent + '  data:  ' + fmt(instance.data,       0) + '\n'; } catch(e) {}
-                        try { if (instance.props      && Object.keys(instance.props).length)      out += indent + '  props: ' + fmt(instance.props,      0) + '\n'; } catch(e) {}
-                        try { if (instance.setupState && Object.keys(instance.setupState).length) out += indent + '  setup: ' + fmt(instance.setupState, 0) + '\n'; } catch(e) {}
-                        if (instance.subTree) {
-                            collectV3Children(instance.subTree, []).forEach(function(child) {
-                                out += renderV3(child, indent + '  ', depth + 1);
-                            });
-                        }
-                        return out;
-                    }
-
-                    function scan() {
-                        tree.style.color = '#ccc';
-                        tree.textContent = 'Scanning...';
-                        var vue = detectVue();
-
-                        if (!vue) {
-                            status.style.color = '#ff6b6b';
-                            status.textContent = 'Vue not detected';
-                            tree.textContent = 'No Vue instance found on this page.\n\nThis tab works on sites that use Vue.js.';
-                            return;
-                        }
-
-                        if (vue.version === 2) {
-                            var ver = (unsafeWindow.Vue && unsafeWindow.Vue.version) ? unsafeWindow.Vue.version : '2.x';
-                            status.style.color = '#42b883';
-                            status.textContent = 'Vue ' + ver;
-                            try {
-                                var root = vue.root;
-                                if (!root) {
-                                    // Try to find it from the DOM if detectVue couldn't grab it
-                                    var el = document.querySelector('#app');
-                                    root = el && el.__vue__;
-                                }
-                                tree.textContent = root ? renderV2(root, '') : 'Vue 2 detected but root instance not accessible.';
-                            } catch(e) {
-                                tree.style.color = '#ff4444';
-                                tree.textContent = 'Error scanning Vue 2: ' + e.message;
-                            }
-                        } else {
-                            var appVer = vue.app.version || '3.x';
-                            status.style.color = '#42b883';
-                            status.textContent = 'Vue ' + appVer;
-                            try {
-                                var rootInstance = vue.app._instance;
-                                tree.textContent = rootInstance ? renderV3(rootInstance, '', 0) : 'Vue 3 detected but root instance not accessible.';
-                            } catch(e) {
-                                tree.style.color = '#ff4444';
-                                tree.textContent = 'Error scanning Vue 3: ' + e.message;
-                            }
-                        }
-                    }
-
-                    scanBtn.addEventListener('click', scan);
-                    scan(); // auto-scan when tab opens
+                    _el = $el;
+                    var c = getRawEl($el);
+                    if (c) render(c);
                 },
-                show: function() {},
+                show: function() {
+                    if (!_rendered && _el) {
+                        var c = getRawEl(_el);
+                        if (c) render(c);
+                    }
+                },
                 hide: function() {},
                 destroy: function() {}
-            };
+            });
 
-            eruda.add(VueTool);
             console.log('%c✓ Vue tab added', 'color:cyan;');
         } catch(e) {
             console.warn('Could not add Vue tab:', e);
+        }
+    }
+
+    // ─── Reveal tab — DOM, Storage, and Page inspection ───────────────────────
+    function addRevealTab() {
+        try {
+            var _el = null;
+            var _rendered = false;
+
+            var SECTION = 'display:block;margin:10px 0 5px;font-family:monospace;font-size:10px;' +
+                          'color:#666;font-weight:bold;text-transform:uppercase;letter-spacing:1px;';
+            var ROW = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;';
+
+            function btn(id, bg, label) {
+                return '<button id="' + id + '" style="' + BTN + 'background:' + bg + ';">' + label + '</button>';
+            }
+
+            function render(container) {
+                if (_rendered) return;
+                _rendered = true;
+                container.innerHTML = [
+                    '<div style="padding:10px;box-sizing:border-box;overflow-y:auto;">',
+
+                    '<span style="' + SECTION + '">DOM</span>',
+                    '<div style="' + ROW + '">',
+                        btn('rv-show-hidden',    '#7d3c98', '&#128064; Show Hidden'),
+                        btn('rv-enable-inputs',  '#1a5276', '&#9989; Enable Inputs'),
+                        btn('rv-remove-readonly','#1a5276', '&#9999;&#65039; Remove Readonly'),
+                    '</div>',
+
+                    '<span style="' + SECTION + '">Storage</span>',
+                    '<div style="' + ROW + '">',
+                        btn('rv-cookies',  '#7b241c', '&#127850; Cookies'),
+                        btn('rv-ls',       '#1e8449', '&#128190; LocalStorage'),
+                        btn('rv-ss',       '#1e8449', '&#128190; SessionStorage'),
+                        btn('rv-clear-ls', '#555',    '&#128465; Clear LS'),
+                    '</div>',
+
+                    '<span style="' + SECTION + '">Page</span>',
+                    '<div style="' + ROW + '">',
+                        btn('rv-meta',    '#78350f', '&#128211; Meta Tags'),
+                        btn('rv-scripts', '#0e4f6e', '&#128196; Scripts'),
+                        btn('rv-links',   '#0e4f6e', '&#128279; Links'),
+                        btn('rv-forms',   '#0e4f6e', '&#128221; Forms'),
+                    '</div>',
+
+                    '<div id="rv-out" style="',
+                        'margin-top:8px;',
+                        'min-height:160px;',
+                        'background:#111;',
+                        'color:#0f0;',
+                        'border:1px solid #333;',
+                        'border-radius:6px;',
+                        'padding:10px;',
+                        'font-family:monospace;',
+                        'font-size:11px;',
+                        'overflow-y:auto;',
+                        'white-space:pre-wrap;',
+                        'word-break:break-all;',
+                    '">Press a button above to inspect the page.</div>',
+                    '</div>'
+                ].join('');
+
+                var out = container.querySelector('#rv-out');
+
+                function setOut(text, color) {
+                    out.style.color = color || '#0f0';
+                    out.textContent = text;
+                }
+
+                // ── DOM ──
+                container.querySelector('#rv-show-hidden').addEventListener('click', function() {
+                    var count = 0;
+                    // Inline display:none
+                    document.querySelectorAll('[style*="display:none"],[style*="display: none"]').forEach(function(el) {
+                        el.style.removeProperty('display');
+                        count++;
+                    });
+                    // hidden inputs → text with red border
+                    document.querySelectorAll('input[type="hidden"]').forEach(function(el) {
+                        el.setAttribute('type', 'text');
+                        el.style.border = '2px solid red';
+                        count++;
+                    });
+                    // visibility:hidden
+                    document.querySelectorAll('[style*="visibility:hidden"],[style*="visibility: hidden"]').forEach(function(el) {
+                        el.style.removeProperty('visibility');
+                        count++;
+                    });
+                    setOut('Revealed ' + count + ' element(s).\n• Inline display:none removed\n• Hidden inputs changed to type=text (highlighted red)\n• Inline visibility:hidden removed\n\nNote: CSS-class-based hiding requires inspecting stylesheets.');
+                });
+
+                container.querySelector('#rv-enable-inputs').addEventListener('click', function() {
+                    var els = document.querySelectorAll('[disabled]');
+                    els.forEach(function(el) { el.removeAttribute('disabled'); });
+                    setOut('Enabled ' + els.length + ' disabled element(s).');
+                });
+
+                container.querySelector('#rv-remove-readonly').addEventListener('click', function() {
+                    var els = document.querySelectorAll('[readonly]');
+                    els.forEach(function(el) { el.removeAttribute('readonly'); });
+                    setOut('Removed readonly from ' + els.length + ' element(s).');
+                });
+
+                // ── Storage ──
+                container.querySelector('#rv-cookies').addEventListener('click', function() {
+                    if (!document.cookie) { setOut('No cookies.', '#ff6'); return; }
+                    var pairs = document.cookie.split(';').map(function(c) { return c.trim(); });
+                    setOut('Cookies (' + pairs.length + '):\n\n' + pairs.join('\n'));
+                });
+
+                container.querySelector('#rv-ls').addEventListener('click', function() {
+                    try {
+                        var keys = Object.keys(localStorage);
+                        if (!keys.length) { setOut('localStorage is empty.', '#ff6'); return; }
+                        var lines = keys.map(function(k) {
+                            var v = localStorage.getItem(k) || '';
+                            return k + ' = ' + (v.length > 120 ? v.slice(0, 120) + '…' : v);
+                        });
+                        setOut('localStorage (' + keys.length + ' keys):\n\n' + lines.join('\n'));
+                    } catch(e) { setOut('Error: ' + e.message, '#f44'); }
+                });
+
+                container.querySelector('#rv-ss').addEventListener('click', function() {
+                    try {
+                        var keys = Object.keys(sessionStorage);
+                        if (!keys.length) { setOut('sessionStorage is empty.', '#ff6'); return; }
+                        var lines = keys.map(function(k) {
+                            var v = sessionStorage.getItem(k) || '';
+                            return k + ' = ' + (v.length > 120 ? v.slice(0, 120) + '…' : v);
+                        });
+                        setOut('sessionStorage (' + keys.length + ' keys):\n\n' + lines.join('\n'));
+                    } catch(e) { setOut('Error: ' + e.message, '#f44'); }
+                });
+
+                container.querySelector('#rv-clear-ls').addEventListener('click', function() {
+                    try {
+                        var count = Object.keys(localStorage).length;
+                        localStorage.clear();
+                        setOut('Cleared ' + count + ' localStorage key(s).', '#ff6');
+                    } catch(e) { setOut('Error: ' + e.message, '#f44'); }
+                });
+
+                // ── Page ──
+                container.querySelector('#rv-meta').addEventListener('click', function() {
+                    var metas = document.querySelectorAll('meta');
+                    if (!metas.length) { setOut('No meta tags.', '#ff6'); return; }
+                    var lines = Array.from(metas).map(function(m) {
+                        return Array.from(m.attributes).map(function(a) { return a.name + '="' + a.value + '"'; }).join(' ');
+                    });
+                    setOut('Meta tags (' + metas.length + '):\n\n' + lines.join('\n'));
+                });
+
+                container.querySelector('#rv-scripts').addEventListener('click', function() {
+                    var scripts = document.querySelectorAll('script[src]');
+                    if (!scripts.length) { setOut('No external scripts.', '#ff6'); return; }
+                    var lines = Array.from(scripts).map(function(s, i) { return (i + 1) + '. ' + s.src; });
+                    setOut('External scripts (' + scripts.length + '):\n\n' + lines.join('\n'));
+                });
+
+                container.querySelector('#rv-links').addEventListener('click', function() {
+                    var all = document.querySelectorAll('a[href]');
+                    if (!all.length) { setOut('No links found.', '#ff6'); return; }
+                    var seen = new Set();
+                    var unique = Array.from(all).filter(function(a) {
+                        if (seen.has(a.href)) return false;
+                        seen.add(a.href); return true;
+                    });
+                    var lines = unique.slice(0, 60).map(function(a, i) {
+                        var label = a.textContent.trim().slice(0, 40);
+                        return (i + 1) + '. ' + a.href + (label ? '  (' + label + ')' : '');
+                    });
+                    setOut('Unique links (' + unique.length + ', showing ' + lines.length + '):\n\n' + lines.join('\n'));
+                });
+
+                container.querySelector('#rv-forms').addEventListener('click', function() {
+                    var forms = document.querySelectorAll('form');
+                    if (!forms.length) { setOut('No forms found.', '#ff6'); return; }
+                    var lines = Array.from(forms).map(function(f, i) {
+                        var fields = Array.from(f.querySelectorAll('input,select,textarea')).map(function(inp) {
+                            return '    [' + (inp.type || inp.tagName.toLowerCase()) + '] ' +
+                                   (inp.name || inp.id || '(unnamed)') +
+                                   (inp.value ? ' = "' + String(inp.value).slice(0, 60) + '"' : '');
+                        });
+                        return 'Form ' + (i + 1) + ' [action="' + (f.action || '') + '" method="' + (f.method || 'get') + '"]\n' + fields.join('\n');
+                    });
+                    setOut(lines.join('\n\n'));
+                });
+            }
+
+            eruda.add({
+                name: 'Reveal',
+                init: function($el) {
+                    _el = $el;
+                    var c = getRawEl($el);
+                    if (c) render(c);
+                },
+                show: function() {
+                    if (!_rendered && _el) {
+                        var c = getRawEl(_el);
+                        if (c) render(c);
+                    }
+                },
+                hide: function() {},
+                destroy: function() {}
+            });
+
+            console.log('%c✓ Reveal tab added', 'color:cyan;');
+        } catch(e) {
+            console.warn('Could not add Reveal tab:', e);
         }
     }
 
