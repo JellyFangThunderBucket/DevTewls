@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      3.3
+// @version      3.4
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -12,7 +12,6 @@
 // @require      https://cdn.jsdelivr.net/npm/eruda@3.0.1/eruda.min.js
 // @require      https://cdn.jsdelivr.net/npm/eruda-dom
 // @require      https://cdn.jsdelivr.net/npm/eruda-timing
-// @require      https://cdn.jsdelivr.net/npm/eruda-memory
 // @require      https://cdn.jsdelivr.net/npm/eruda-benchmark
 // @require      https://cdn.jsdelivr.net/npm/eruda-geolocation
 // @require      https://cdn.jsdelivr.net/npm/eruda-features
@@ -106,7 +105,6 @@
         const plugins = [
             { global: 'erudaDom',         name: 'erudaDom' },
             { global: 'erudaTiming',      name: 'erudaTiming' },
-            { global: 'erudaMemory',      name: 'erudaMemory' },
             { global: 'erudaBenchmark',   name: 'erudaBenchmark' },
             { global: 'erudaGeolocation', name: 'erudaGeolocation' },
             { global: 'erudaFeatures',    name: 'erudaFeatures' },
@@ -136,7 +134,8 @@
         try {
             const CodeTool = {
                 name: 'Code',
-                init: function(container) {
+                init: function($el) {
+                    var container = $el[0] || $el;
                     container.innerHTML = [
                         '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
                         '<textarea id="eruda-code-input" style="',
@@ -287,7 +286,8 @@
         try {
             const VueTool = {
                 name: 'Vue',
-                init: function(container) {
+                init: function($el) {
+                    var container = $el[0] || $el;
                     container.innerHTML = [
                         '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
                         '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">',
