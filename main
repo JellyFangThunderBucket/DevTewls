@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      3.8
+// @version      3.9
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -37,6 +37,7 @@
     if (blacklist.some(site => location.hostname === site || location.hostname.endsWith('.' + site))) return;
 
     eruda.init();
+    eruda.hide(); // close the panel on load — leave only the floating button visible
 
     // Keyboard shortcut Ctrl+Shift+E (set up immediately, not inside setTimeout)
     document.addEventListener('keydown', function(e) {
