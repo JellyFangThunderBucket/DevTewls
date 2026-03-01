@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      3.7
+// @version      3.8
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -36,41 +36,7 @@
     ];
     if (blacklist.some(site => location.hostname === site || location.hostname.endsWith('.' + site))) return;
 
-    // --- Diagnostic badge (visible for 6 s, then auto-removes) ---
-    function showBadge(msg, color) {
-        try {
-            const b = document.createElement('div');
-            b.style.cssText = 'position:fixed;top:8px;left:8px;z-index:2147483647;' +
-                'background:' + color + ';color:#fff;padding:8px 12px;' +
-                'border-radius:6px;font:bold 13px monospace;pointer-events:none;' +
-                'box-shadow:0 2px 8px rgba(0,0,0,.5);';
-            b.textContent = 'Eruda: ' + msg;
-            (document.body || document.documentElement).appendChild(b);
-            setTimeout(function() { b.remove(); }, 6000);
-        } catch(e) {}
-    }
-
-    // Verify @require actually loaded eruda
-    if (typeof eruda === 'undefined') {
-        showBadge('NOT LOADED — CDN blocked?', '#c0392b');
-        return;
-    }
-
-    // Try init — first without options (most compatible), fall back to useShadowDom:false
-    let initOk = false;
-    try {
-        eruda.init();
-        initOk = true;
-    } catch(e1) {
-        try {
-            eruda.init({ useShadowDom: false });
-            initOk = true;
-        } catch(e2) {
-            showBadge('init() failed: ' + e2.message, '#c0392b');
-            return;
-        }
-    }
-    if (initOk) showBadge('running — button should be on screen', '#27ae60');
+    eruda.init();
 
     // Keyboard shortcut Ctrl+Shift+E (set up immediately, not inside setTimeout)
     document.addEventListener('keydown', function(e) {
@@ -131,12 +97,6 @@
                 });
                 observer.observe(btn, { attributes: true, attributeFilter: ['style'] });
             } catch(e) {}
-        } else {
-            // Button not found in normal DOM — clear any bad saved position and
-            // call show() so Eruda is at least accessible until the button appears.
-            GM_setValue('erudaX', null);
-            GM_setValue('erudaY', null);
-            eruda.show();
         }
 
         // Plugins are already loaded via @require — add them synchronously
