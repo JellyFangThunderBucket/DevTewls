@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      3.3
+// @version      3.7
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -12,7 +12,6 @@
 // @require      https://cdn.jsdelivr.net/npm/eruda@3.0.1/eruda.min.js
 // @require      https://cdn.jsdelivr.net/npm/eruda-dom
 // @require      https://cdn.jsdelivr.net/npm/eruda-timing
-// @require      https://cdn.jsdelivr.net/npm/eruda-memory
 // @require      https://cdn.jsdelivr.net/npm/eruda-benchmark
 // @require      https://cdn.jsdelivr.net/npm/eruda-geolocation
 // @require      https://cdn.jsdelivr.net/npm/eruda-features
@@ -37,9 +36,41 @@
     ];
     if (blacklist.some(site => location.hostname === site || location.hostname.endsWith('.' + site))) return;
 
-    // Eruda is already loaded via @require — no dynamic script injection needed
-    eruda.init();
-    eruda.hide();
+    // --- Diagnostic badge (visible for 6 s, then auto-removes) ---
+    function showBadge(msg, color) {
+        try {
+            const b = document.createElement('div');
+            b.style.cssText = 'position:fixed;top:8px;left:8px;z-index:2147483647;' +
+                'background:' + color + ';color:#fff;padding:8px 12px;' +
+                'border-radius:6px;font:bold 13px monospace;pointer-events:none;' +
+                'box-shadow:0 2px 8px rgba(0,0,0,.5);';
+            b.textContent = 'Eruda: ' + msg;
+            (document.body || document.documentElement).appendChild(b);
+            setTimeout(function() { b.remove(); }, 6000);
+        } catch(e) {}
+    }
+
+    // Verify @require actually loaded eruda
+    if (typeof eruda === 'undefined') {
+        showBadge('NOT LOADED — CDN blocked?', '#c0392b');
+        return;
+    }
+
+    // Try init — first without options (most compatible), fall back to useShadowDom:false
+    let initOk = false;
+    try {
+        eruda.init();
+        initOk = true;
+    } catch(e1) {
+        try {
+            eruda.init({ useShadowDom: false });
+            initOk = true;
+        } catch(e2) {
+            showBadge('init() failed: ' + e2.message, '#c0392b');
+            return;
+        }
+    }
+    if (initOk) showBadge('running — button should be on screen', '#27ae60');
 
     // Keyboard shortcut Ctrl+Shift+E (set up immediately, not inside setTimeout)
     document.addEventListener('keydown', function(e) {
@@ -100,13 +131,18 @@
                 });
                 observer.observe(btn, { attributes: true, attributeFilter: ['style'] });
             } catch(e) {}
+        } else {
+            // Button not found in normal DOM — clear any bad saved position and
+            // call show() so Eruda is at least accessible until the button appears.
+            GM_setValue('erudaX', null);
+            GM_setValue('erudaY', null);
+            eruda.show();
         }
 
         // Plugins are already loaded via @require — add them synchronously
         const plugins = [
             { global: 'erudaDom',         name: 'erudaDom' },
             { global: 'erudaTiming',      name: 'erudaTiming' },
-            { global: 'erudaMemory',      name: 'erudaMemory' },
             { global: 'erudaBenchmark',   name: 'erudaBenchmark' },
             { global: 'erudaGeolocation', name: 'erudaGeolocation' },
             { global: 'erudaFeatures',    name: 'erudaFeatures' },
@@ -124,7 +160,6 @@
             }
         });
 
-        eruda.hide();
         console.log('%c✅ Eruda ready with all plugins', 'color:lime; font-weight:bold;');
         addCodeTab();
         addVueTab();
@@ -136,7 +171,8 @@
         try {
             const CodeTool = {
                 name: 'Code',
-                init: function(container) {
+                init: function($el) {
+                    var container = $el[0] || $el;
                     container.innerHTML = [
                         '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
                         '<textarea id="eruda-code-input" style="',
@@ -287,7 +323,8 @@
         try {
             const VueTool = {
                 name: 'Vue',
-                init: function(container) {
+                init: function($el) {
+                    var container = $el[0] || $el;
                     container.innerHTML = [
                         '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
                         '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">',
