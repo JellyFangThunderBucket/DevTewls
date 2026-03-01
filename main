@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      4.0
+// @version      4.1
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -36,7 +36,19 @@
     if (blacklist.some(site => location.hostname === site || location.hostname.endsWith('.' + site))) return;
 
     eruda.init();
-    eruda.hide(); // close the panel on load — leave only the floating button visible
+    // eruda.hide() in Eruda 3.x hides the entire #eruda container including the
+    // entry button — so we hide only the panel via CSS and restore on first show().
+    try {
+        var _panelStyle = document.createElement('style');
+        _panelStyle.textContent = '#eruda .eruda-dev-tools{display:none!important}';
+        document.head.appendChild(_panelStyle);
+        var _origShow = eruda.show.bind(eruda);
+        eruda.show = function() {
+            _panelStyle.remove();
+            eruda.show = _origShow;
+            _origShow();
+        };
+    } catch(e) {}
 
     // Keyboard shortcut Ctrl+Shift+E (set up immediately, not inside setTimeout)
     document.addEventListener('keydown', function(e) {
