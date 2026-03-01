@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Eruda DevTools - All Websites
 // @namespace    http://yournamespace/
-// @version      3.5
+// @version      3.6
 // @description  Inject Eruda devtools on any website
 // @author       You
 // @match        *://*/*
@@ -36,8 +36,10 @@
     ];
     if (blacklist.some(site => location.hostname === site || location.hostname.endsWith('.' + site))) return;
 
-    // Eruda is already loaded via @require — no dynamic script injection needed
-    eruda.init();
+    // Eruda is already loaded via @require — no dynamic script injection needed.
+    // useShadowDom:false keeps the button in the normal DOM; shadow DOM caused
+    // the button to be invisible in some Tampermonkey/mobile browser environments.
+    eruda.init({ useShadowDom: false });
 
     // Keyboard shortcut Ctrl+Shift+E (set up immediately, not inside setTimeout)
     document.addEventListener('keydown', function(e) {
@@ -98,6 +100,12 @@
                 });
                 observer.observe(btn, { attributes: true, attributeFilter: ['style'] });
             } catch(e) {}
+        } else {
+            // Button not found in normal DOM — clear any bad saved position and
+            // call show() so Eruda is at least accessible until the button appears.
+            GM_setValue('erudaX', null);
+            GM_setValue('erudaY', null);
+            eruda.show();
         }
 
         // Plugins are already loaded via @require — add them synchronously
