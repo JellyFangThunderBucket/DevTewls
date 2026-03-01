@@ -115,6 +115,7 @@
         eruda.hide();
         console.log('%c✅ Eruda ready with all plugins', 'color:lime; font-weight:bold;');
         addCodeTab();
+        addVueTab();
 
     }, 500);
 
@@ -266,6 +267,185 @@
             console.log('%c✓ Custom Code tab added', 'color:cyan;');
         } catch(e) {
             console.warn('Could not add Code tab:', e);
+        }
+    }
+
+    // Vue component inspector tab — supports Vue 2 and Vue 3
+    function addVueTab() {
+        try {
+            const VueTool = {
+                name: 'Vue',
+                init: function(container) {
+                    container.innerHTML = [
+                        '<div style="padding:10px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;">',
+                        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">',
+                            '<span id="eruda-vue-status" style="flex:1;font-family:monospace;font-size:12px;color:#42b883;font-weight:bold;"></span>',
+                            '<button id="eruda-vue-scan" style="',
+                                'padding:8px 16px;',
+                                'background:#42b883;',
+                                'color:white;',
+                                'border:none;',
+                                'border-radius:6px;',
+                                'font-size:14px;',
+                                'cursor:pointer;',
+                            '">&#8635; Scan</button>',
+                        '</div>',
+                        '<div id="eruda-vue-tree" style="',
+                            'flex:1;',
+                            'overflow-y:auto;',
+                            'font-family:monospace;',
+                            'font-size:12px;',
+                            'background:#1a1a1a;',
+                            'border:1px solid #333;',
+                            'border-radius:6px;',
+                            'padding:10px;',
+                            'color:#ccc;',
+                            'white-space:pre-wrap;',
+                            'word-break:break-all;',
+                        '">Press Scan to inspect Vue components.</div>',
+                        '</div>'
+                    ].join('');
+
+                    const status = container.querySelector('#eruda-vue-status');
+                    const tree   = container.querySelector('#eruda-vue-tree');
+                    const scanBtn = container.querySelector('#eruda-vue-scan');
+
+                    // Detect which version of Vue is on the page
+                    function detectVue() {
+                        // Vue 3: root element carries __vue_app__
+                        const candidates = [
+                            document.querySelector('[data-v-app]'),
+                            document.querySelector('#app'),
+                            document.body
+                        ];
+                        for (var i = 0; i < candidates.length; i++) {
+                            var el = candidates[i];
+                            if (el && el.__vue_app__) return { version: 3, app: el.__vue_app__ };
+                        }
+                        // Vue 2: root element carries __vue__
+                        var el2 = document.querySelector('#app');
+                        if (el2 && el2.__vue__) return { version: 2, root: el2.__vue__ };
+                        // Vue 2 global constructor
+                        if (unsafeWindow.Vue && unsafeWindow.Vue.version && unsafeWindow.Vue.version[0] === '2') {
+                            return { version: 2, root: null };
+                        }
+                        return null;
+                    }
+
+                    // Safely stringify a value with depth limit
+                    function fmt(val, depth) {
+                        if (depth > 2) return '...';
+                        if (val === null) return 'null';
+                        if (val === undefined) return 'undefined';
+                        if (typeof val !== 'object') return JSON.stringify(val);
+                        if (Array.isArray(val)) {
+                            if (val.length === 0) return '[]';
+                            var items = val.slice(0, 5).map(function(v) { return fmt(v, depth + 1); });
+                            return '[' + items.join(', ') + (val.length > 5 ? ', ...' : '') + ']';
+                        }
+                        var keys = Object.keys(val);
+                        if (keys.length === 0) return '{}';
+                        var shown = keys.slice(0, 8).map(function(k) { return k + ': ' + fmt(val[k], depth + 1); });
+                        return '{ ' + shown.join(', ') + (keys.length > 8 ? ', ...' : '') + ' }';
+                    }
+
+                    // Render a Vue 2 component instance recursively
+                    function renderV2(vm, indent) {
+                        var name = (vm.$options && (vm.$options.name || vm.$options._componentTag)) || 'Anonymous';
+                        var out = indent + '<' + name + '>\n';
+                        try { if (vm.$data  && Object.keys(vm.$data).length)  out += indent + '  data:  ' + fmt(vm.$data,  0) + '\n'; } catch(e) {}
+                        try { if (vm.$props && Object.keys(vm.$props).length) out += indent + '  props: ' + fmt(vm.$props, 0) + '\n'; } catch(e) {}
+                        if (vm.$children && vm.$children.length) {
+                            vm.$children.forEach(function(child) { out += renderV2(child, indent + '  '); });
+                        }
+                        return out;
+                    }
+
+                    // Walk a Vue 3 vnode tree and collect component instances
+                    function collectV3Children(vnode, result) {
+                        if (!vnode) return result;
+                        if (vnode.component) { result.push(vnode.component); return result; }
+                        if (Array.isArray(vnode.children)) {
+                            vnode.children.forEach(function(c) { collectV3Children(c, result); });
+                        } else if (vnode.children && typeof vnode.children === 'object') {
+                            Object.values(vnode.children).forEach(function(c) {
+                                if (c && typeof c === 'object') collectV3Children(c, result);
+                            });
+                        }
+                        return result;
+                    }
+
+                    // Render a Vue 3 component instance recursively
+                    function renderV3(instance, indent, depth) {
+                        if (!instance || depth > 12) return '';
+                        var type = instance.type || {};
+                        var name = type.name || type.__name || type.displayName || 'Anonymous';
+                        var out = indent + '<' + name + '>\n';
+                        try { if (instance.data       && Object.keys(instance.data).length)       out += indent + '  data:  ' + fmt(instance.data,       0) + '\n'; } catch(e) {}
+                        try { if (instance.props      && Object.keys(instance.props).length)      out += indent + '  props: ' + fmt(instance.props,      0) + '\n'; } catch(e) {}
+                        try { if (instance.setupState && Object.keys(instance.setupState).length) out += indent + '  setup: ' + fmt(instance.setupState, 0) + '\n'; } catch(e) {}
+                        if (instance.subTree) {
+                            collectV3Children(instance.subTree, []).forEach(function(child) {
+                                out += renderV3(child, indent + '  ', depth + 1);
+                            });
+                        }
+                        return out;
+                    }
+
+                    function scan() {
+                        tree.style.color = '#ccc';
+                        tree.textContent = 'Scanning...';
+                        var vue = detectVue();
+
+                        if (!vue) {
+                            status.style.color = '#ff6b6b';
+                            status.textContent = 'Vue not detected';
+                            tree.textContent = 'No Vue instance found on this page.\n\nThis tab works on sites that use Vue.js.';
+                            return;
+                        }
+
+                        if (vue.version === 2) {
+                            var ver = (unsafeWindow.Vue && unsafeWindow.Vue.version) ? unsafeWindow.Vue.version : '2.x';
+                            status.style.color = '#42b883';
+                            status.textContent = 'Vue ' + ver;
+                            try {
+                                var root = vue.root;
+                                if (!root) {
+                                    // Try to find it from the DOM if detectVue couldn't grab it
+                                    var el = document.querySelector('#app');
+                                    root = el && el.__vue__;
+                                }
+                                tree.textContent = root ? renderV2(root, '') : 'Vue 2 detected but root instance not accessible.';
+                            } catch(e) {
+                                tree.style.color = '#ff4444';
+                                tree.textContent = 'Error scanning Vue 2: ' + e.message;
+                            }
+                        } else {
+                            var appVer = vue.app.version || '3.x';
+                            status.style.color = '#42b883';
+                            status.textContent = 'Vue ' + appVer;
+                            try {
+                                var rootInstance = vue.app._instance;
+                                tree.textContent = rootInstance ? renderV3(rootInstance, '', 0) : 'Vue 3 detected but root instance not accessible.';
+                            } catch(e) {
+                                tree.style.color = '#ff4444';
+                                tree.textContent = 'Error scanning Vue 3: ' + e.message;
+                            }
+                        }
+                    }
+
+                    scanBtn.addEventListener('click', scan);
+                    scan(); // auto-scan when tab opens
+                },
+                show: function() {},
+                hide: function() {},
+                destroy: function() {}
+            };
+
+            eruda.add(VueTool);
+            console.log('%c✓ Vue tab added', 'color:cyan;');
+        } catch(e) {
+            console.warn('Could not add Vue tab:', e);
         }
     }
 
