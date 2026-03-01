@@ -74,8 +74,16 @@
         if (btn) {
             if (savedX !== null && savedY !== null) {
                 try {
-                    btn.style.left = savedX + 'px';
-                    btn.style.top = savedY + 'px';
+                    const btnW = btn.offsetWidth  || 40;
+                    const btnH = btn.offsetHeight || 40;
+                    // Clamp to viewport so the button can never end up off-screen
+                    const clampedX = Math.max(0, Math.min(savedX, window.innerWidth  - btnW));
+                    const clampedY = Math.max(0, Math.min(savedY, window.innerHeight - btnH));
+                    // Unset right/bottom so left/top take full effect
+                    btn.style.right  = 'auto';
+                    btn.style.bottom = 'auto';
+                    btn.style.left   = clampedX + 'px';
+                    btn.style.top    = clampedY + 'px';
                 } catch(e) {}
             }
 
@@ -83,8 +91,12 @@
             try {
                 const observer = new MutationObserver(function() {
                     const rect = btn.getBoundingClientRect();
-                    GM_setValue('erudaX', rect.left);
-                    GM_setValue('erudaY', rect.top);
+                    // Only save if the button is actually visible on screen
+                    if (rect.left >= 0 && rect.top >= 0 &&
+                        rect.right <= window.innerWidth && rect.bottom <= window.innerHeight) {
+                        GM_setValue('erudaX', rect.left);
+                        GM_setValue('erudaY', rect.top);
+                    }
                 });
                 observer.observe(btn, { attributes: true, attributeFilter: ['style'] });
             } catch(e) {}
