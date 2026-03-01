@@ -13,7 +13,6 @@
 // @require      https://cdn.jsdelivr.net/npm/eruda-dom
 // @require      https://cdn.jsdelivr.net/npm/eruda-timing
 // @require      https://cdn.jsdelivr.net/npm/eruda-benchmark
-// @require      https://cdn.jsdelivr.net/npm/eruda-geolocation
 // @require      https://cdn.jsdelivr.net/npm/eruda-features
 // @require      https://cdn.jsdelivr.net/npm/eruda-orientation
 // ==/UserScript==
@@ -105,7 +104,6 @@
             { global: 'erudaDom',         name: 'erudaDom' },
             { global: 'erudaTiming',      name: 'erudaTiming' },
             { global: 'erudaBenchmark',   name: 'erudaBenchmark' },
-            { global: 'erudaGeolocation', name: 'erudaGeolocation' },
             { global: 'erudaFeatures',    name: 'erudaFeatures' },
             { global: 'erudaOrientation', name: 'erudaOrientation' }
         ];
